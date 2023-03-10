@@ -15,6 +15,9 @@ class Piece:
     def getName(self):
         return self.name
 
+    def getPoints(self):
+        return self.points
+
     def getColor(self):
         return self.color
 
@@ -106,19 +109,6 @@ class Pawn(Piece):
                     moves.append(Move(self, newSquare, cp=gs.getEnPassantPiece(),
                                       cps=gs.getEnPassantPiece().getSquare(), enPassant=True))
 
-        # # En passant
-        # if gs.canEnPassant():
-        #     newFile = self.square.getFile() + directions[-1][0]
-        #     newRank = self.square.getRank() + directions[-1][1]
-        #     if 0 <= newFile <= 7 and 0 <= newRank <= 7:
-        #         newSquare = gs.getBoard()[newFile][newRank]
-        #         piece = newSquare.getPiece()
-        #         # If square beside piece is occupied by opponent piece, then can en Passant capture
-        #         if piece:
-        #             if piece.getColor() != self.color and piece.getName() == 'Pawn':
-        #                 if piece.enPassantCapture:
-        #                     moves.append(Move(self, newSquare, cp=newSquare.getPiece(),
-        #                                       cps=newSquare.getPiece().getSquare()))
 
 class Knight(Piece):
     """Represents a knight"""
@@ -196,6 +186,7 @@ class King(Piece):
     directions = [(0, 1), (0, -1), (-1, 0), (1, 0), (1, 1), (1, -1), (-1, 1), (-1, -1)]
     name = "King"
     abbrev = 'K'
+    points = 999
 
     def __init__(self, square, color):
         super().__init__(square, color)
@@ -214,3 +205,36 @@ class King(Piece):
                 elif newSquare.getPiece().getColor() != self.color:
                     moves.append(Move(self, newSquare, cp=newSquare.getPiece(),
                                       cps=newSquare.getPiece().getSquare()))
+
+    def castleMoves(self, gs, moves, toMove):
+        """Generates a list of castle moves for a king given a gamestate"""
+        # Can't castle if in check
+        if not gs.safeSquare(self.getSquare()):
+            return
+        if (toMove == 'white' and gs.getCastleRights().getwkcRights()) or (toMove == 'black' and gs.getCastleRights().getbkcRights()):
+            self.kingSideCastleMoves(gs, moves, toMove)
+        if (toMove == 'white' and gs.getCastleRights().getwqcRights()) or (toMove == 'black' and gs.getCastleRights().getbqcRights()):
+            self.queenSideCastleMoves(gs, moves, toMove)
+
+    def kingSideCastleMoves(self, gs, moves, toMove):
+        board = gs.getBoard()
+        currSquare = self.getSquare()
+        file = currSquare.getFile()
+        rank = currSquare.getRank()
+        # King side castle squares do not have pieces
+        if (not board[file+1][rank].getPiece()) and (not board[file+2][rank].getPiece()):
+            if gs.safeSquare(board[file+1][rank]) and gs.safeSquare(board[file+2][rank]):
+                moves.append(Move(self, board[currSquare.getFile()+2][currSquare.getRank()], castle=True))
+
+    def queenSideCastleMoves(self, gs, moves, toMove):
+        board = gs.getBoard()
+        currSquare = self.getSquare()
+        file = currSquare.getFile()
+        rank = currSquare.getRank()
+        # Queen side castle squares do not have pieces
+        if not board[file-1][rank].getPiece() and not board[file-2][rank].getPiece() and not board[file-3][rank].getPiece():
+            if gs.safeSquare(board[file-1][rank]) and gs.safeSquare(board[file-2][rank]):
+                moves.append(Move(self, board[currSquare.getFile()-2][currSquare.getRank()], castle=True))
+
+
+

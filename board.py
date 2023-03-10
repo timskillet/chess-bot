@@ -6,14 +6,18 @@ class Gamestate:
     """Chess Board"""
 
     def __init__(self):
-
-        # Board is indexed by board[column][row]
+        # Board is indexed by board[column][row] or board[file][rank]
         self.board = [[Square(file, rank) for rank in range(8)] for file in range(8)]
         self.moveLog = []
         self.toMove = 'white'
         self.checked = False
+        self.checkmate = False
+        self.stalemate = False
         self.enPassantSquare = None
         self.enPassantPiece = None
+        self.castlingRights = Castle(True, True, True, True)
+        self.castleLog = [Castle(self.castlingRights.getwkcRights(), self.castlingRights.getwqcRights(),
+                                 self.castlingRights.getbqcRights(), self.castlingRights.getbqcRights())]
 
         for i in range(8):
             # Add Pawns
@@ -64,6 +68,15 @@ class Gamestate:
     def getEnPassantPiece(self):
         return self.enPassantPiece
 
+    def getCastleRights(self):
+        return self.castlingRights
+
+    def isCheckmate(self):
+        return self.checkmate
+
+    def isStalemate(self):
+        return self.stalemate
+
     def printBoard(self):
         tempBoard = [['--' for i in range(8)] for j in range(8)]
         for i in range(8):
@@ -74,6 +87,7 @@ class Gamestate:
             print(rank)
 
     def swapTurns(self):
+        """Swaps player turns"""
         if self.toMove == 'white':
             self.toMove = 'black'
             return 'black'
@@ -82,6 +96,7 @@ class Gamestate:
             return 'white'
 
     def removeMove(self, n):
+        """Removes a move from the move log"""
         for i in range(n):
             self.moveLog.pop()
 
@@ -132,20 +147,73 @@ class Gamestate:
                 newPiece = Queen(piece.getSquare(), piece.getColor())
                 self.board[newSquare.getFile()][newSquare.getRank()].setPiece(newPiece)
 
+        # Castle move
+        if move.isCastle():
+            oldSquare = move.getOldSquare()
+            newSquare = move.getNewSquare()
+            newFile = newSquare.getFile()
+            newRank = newSquare.getRank()
+            # King side castle move rook
+            if newSquare.getFile() - oldSquare.getFile() == 2:
+                rook = self.board[newFile+1][newRank].getPiece()
+                newRookSquare = self.board[newFile-1][newRank]
+                # 1. Remove piece from old rook square
+                rook.getSquare().removePiece()
+                # 2. Set square for rook
+                rook.setSquare(newRookSquare)
+                # 3. Set rook to new square piece
+                newRookSquare.setPiece(rook)
+
+            # Queen side castle move rook
+            elif newSquare.getFile() - oldSquare.getFile() == -2:
+                rook = self.board[newFile-2][newRank].getPiece()
+                newRookSquare = self.board[newFile+1][newRank]
+                # 1. Remove piece from old rook square
+                rook.getSquare().removePiece()
+                # 2. Set square for rook
+                rook.setSquare(newRookSquare)
+                # 3. Set rook to new square piece
+                newRookSquare.setPiece(rook)
+
+        # Castling rights
+        self.updateCastleRights(move)
+        self.castleLog.append(Castle(self.castlingRights.getwkcRights(), self.castlingRights.getwqcRights(),
+                                     self.castlingRights.getbkcRights(), self.castlingRights.getbqcRights()))
+
     def undoMove(self):
+        """Reverts chessboard back to last move"""
         if len(self.moveLog) != 0:
             lastMove = self.moveLog[-1]
             oldSquare = lastMove.getOldSquare()
             newSquare = lastMove.getNewSquare()
-            # 1. Move piece back to original square
+
+            # Undo castle rights
+            # 1. Remove updated castle rights
+            self.castleLog.pop()
+            # 2. Revert back to previous castle rights
+            prevCastle = self.castleLog[-1]
+            self.castlingRights = Castle(prevCastle.getwkcRights(), prevCastle.getwqcRights(),
+                                         prevCastle.getbkcRights(), prevCastle.getbqcRights())
+
+            # 3. Move piece back to original square
             undoMove = Move(lastMove.getPiece(), lastMove.getOldSquare())
             self.makeMove(undoMove)
-            # 2. Return captured piece if captured piece
+            self.castleLog.pop()
+            prevCastle = self.castleLog[-1]
+            self.castlingRights = Castle(prevCastle.getwkcRights(), prevCastle.getwqcRights(),
+                                         prevCastle.getbkcRights(), prevCastle.getbqcRights())
+
+            # 4. Return captured piece if captured piece
             if lastMove.getCapturedPiece():
                 undoCapture = Move(lastMove.getCapturedPiece(), lastMove.getCapturedPieceSquare())
                 self.makeMove(undoCapture)
+                self.castleLog.pop()
+                prevCastle = self.castleLog[-1]
+                self.castlingRights = Castle(prevCastle.getwkcRights(), prevCastle.getwqcRights(),
+                                             prevCastle.getbkcRights(), prevCastle.getbqcRights())
                 self.removeMove(1)
             self.removeMove(2)
+
             # Undo en passant move
             if lastMove.isEnPassantMove():
                 # Remove piece from new square
@@ -160,6 +228,19 @@ class Gamestate:
             if lastMove.getPiece().getName() == 'Pawn' and abs(oldSquare.getRank() - newSquare.getRank()) == 2:
                 self.enPassantSquare = None
                 self.enPassantPiece = None
+
+            # Undo castle move
+            if lastMove.isCastle():
+                # King side castle
+                if newSquare.getFile() - oldSquare.getFile() == 2:
+                    rook = self.board[newSquare.getFile()-1][newSquare.getRank()].getPiece()
+                    self.board[newSquare.getFile()+1][newSquare.getRank()].setPiece(rook)
+                    self.board[newSquare.getFile()-1][newSquare.getRank()].removePiece()
+                # Queen side castle
+                else:
+                    rook = self.board[newSquare.getFile()+1][newSquare.getRank()].getPiece()
+                    self.board[newSquare.getFile()-2][newSquare.getRank()].setPiece(rook)
+                    self.board[newSquare.getFile()+1][newSquare.getRank()].removePiece()
 
     def allPossibleMoves(self):
         """Generates a list of all possible moves that can be made by a player"""
@@ -179,6 +260,8 @@ class Gamestate:
         enPassantPiece = self.enPassantPiece
         # 1. Generate all possible moves
         allMoves = self.allPossibleMoves()
+        # Add castle moves to allMoves
+        self.getKingPosition().getPiece().castleMoves(gs=self, moves=allMoves, toMove=self.toMove)
         # 2. Simulate all possible moves
         for i in range(len(allMoves)-1, -1, -1):
             self.makeMove(allMoves[i]) # Simulating current move
@@ -201,6 +284,7 @@ class Gamestate:
         return allMoves
 
     def getKingPosition(self):
+        """Retrieves the location of king of current player's turn"""
         for rank in range(8):
             for file in range(8):
                 if self.board[rank][file].getPiece():
@@ -208,16 +292,57 @@ class Gamestate:
                     if piece.getName() == 'King' and piece.getColor() == self.toMove:
                         return piece.getSquare()
 
-    def evalGame(self):
+    def check(self):
+        return not self.safeSquare(self.getKingPosition())
+
+    def safeSquare(self, square):
+        self.swapTurns()
+        opponentMoves = self.allPossibleMoves()
+        self.swapTurns()
+        for move in opponentMoves:
+            newSquare = move.getNewSquare()
+            if (newSquare.getRank() == square.getRank()) and (newSquare.getFile() == square.getFile()):
+                return False
+        return True
+
+    def updateCastleRights(self, move):
+        """Updates the current gamestate's castling rights"""
+        piece = move.getPiece()
+        oldSquare = move.getOldSquare()
+        # Lose castle rights if white king moves
+        if (piece.getName() == 'King') and (piece.getColor() == 'white'):
+            self.castlingRights.wkcLoseRights()
+            self.castlingRights.wqcLoseRights()
+        # Lose castle rights if black king moves
+        elif (piece.getName() == 'King') and (piece.getColor() == 'black'):
+            self.castlingRights.bkcLoseRights()
+            self.castlingRights.bqcLoseRights()
+        elif (piece.getName() == 'Rook') and (piece.getColor() == 'white'):
+            # Lose white queen side castle rights if queen side rook moves
+            if (oldSquare.getRank() == 7) and (oldSquare.getFile() == 0):
+                self.castlingRights.wqcLoseRights()
+            # Lose white king side castle rights if king side rook moves
+            elif (oldSquare.getRank() == 7) and (oldSquare.getFile() == 7):
+                self.castlingRights.wkcLoseRights()
+        elif (piece.getName() == 'Rook') and (piece.getColor() == 'black'):
+            # Lose black queen side castle rights if queen side rook moves
+            if (oldSquare.getRank() == 0) and (oldSquare.getFile() == 0):
+                self.castlingRights.bqcLoseRights()
+            # Lose black king side castle rights if king side rook moves
+            elif (oldSquare.getRank() == 0) and (oldSquare.getFile() == 7):
+                self.castlingRights.bkcLoseRights()
+
+    def evalGame(self, validMoves):
         """Check for checkmate or stalemate after move and switching turns"""
         gameOver = False
-        validMoves = self.getValidMoves()
         print(f"Number of moves remaining for {self.toMove}: {len(validMoves)}")
         if len(validMoves) == 0:
             gameOver = True
-            if self.checked:
+            if self.check():
+                self.checkmate = True
                 print(self.swapTurns(), "wins!")
             else:
+                self.stalemate = True
                 print("Stalemate!")
         return gameOver
 
